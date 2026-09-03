@@ -63,34 +63,57 @@
 
     <section class="card">
 
+        @if ($rememberedPersonName)
+
+            <div class="field">
+                <label class="label">Your name</label>
+                <div class="remembered-name">
+                    {{ $rememberedPersonName }}
+                </div>
+            </div>
+
+        @endif
+
         <form
             method="POST"
-            action="{{ route('makan.pick') }}"
+            action="{{ route('makan.pick') }}#recommendation"
         >
 
             @csrf
 
-            <div class="field">
+            @if (! $rememberedPersonName)
 
-                <label
-                    class="label"
-                    for="person_name"
-                >
-                    Your name
-                </label>
+                <div class="field">
+
+                    <label
+                        class="label"
+                        for="person_name"
+                    >
+                        Your name
+                    </label>
+
+                    <input
+                        class="input"
+                        id="person_name"
+                        name="person_name"
+                        type="text"
+                        required
+                        autocomplete="name"
+                        value="{{ old('person_name', '') }}"
+                        placeholder="e.g. Azlan"
+                    >
+
+                </div>
+
+            @else
 
                 <input
-                    class="input"
-                    id="person_name"
+                    type="hidden"
                     name="person_name"
-                    type="text"
-                    required
-                    autocomplete="name"
-                    value="{{ old('person_name', $personName ?? '') }}"
-                    placeholder="e.g. Azlan"
+                    value="{{ $rememberedPersonName }}"
                 >
 
-            </div>
+            @endif
 
 
             <div class="field">
@@ -142,6 +165,27 @@
 
         </form>
 
+        @if ($rememberedPersonName)
+
+            <form
+                method="POST"
+                action="{{ route('makan.switch') }}"
+                class="switch-user-form"
+            >
+
+                @csrf
+
+                <button
+                    class="secondary-button"
+                    type="submit"
+                >
+                    Not you? Switch user
+                </button>
+
+            </form>
+
+        @endif
+
     </section>
 
 
@@ -149,7 +193,7 @@
 
         @if ($menuItem)
 
-            <section class="result-card">
+            <section class="result-card" id="recommendation">
 
                 <p class="result-label">
                     Today's recommendation
@@ -224,7 +268,7 @@
 
                     <form
                         method="POST"
-                        action="{{ route('makan.pick') }}"
+                        action="{{ route('makan.pick') }}#recommendation"
                     >
 
                         @csrf

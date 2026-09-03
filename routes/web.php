@@ -11,3 +11,6 @@ Route::post('/pick', [MakanController::class, 'pick'])
 
 Route::post('/accept', [MakanController::class, 'accept'])
     ->name('makan.accept');
+
+Route::post('/switch', [MakanController::class, 'switchUser'])
+    ->name('makan.switch');

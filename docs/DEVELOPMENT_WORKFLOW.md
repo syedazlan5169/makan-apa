@@ -66,6 +66,11 @@ docs/
 ```
 
 ### Vite/CSS changes
+# macOS
+VITE_USE_POLLING=false
+
+# Windows Docker Desktop
+VITE_USE_POLLING=true
 
 Vite should detect changes using polling. If front-end changes do not appear, first inspect Vite logs and then restart only the Node service if necessary:
 

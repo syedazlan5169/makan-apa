@@ -26,16 +26,19 @@ class MakanController extends Controller
             ->limit(10)
             ->get();
 
+        $rememberedPersonName = session()->get('makan.current_person_name');
+
         return view('makan.index', [
             'categories' => $categories,
             'recentChoices' => $recentChoices,
+            'rememberedPersonName' => $rememberedPersonName,
         ]);
     }
 
     public function pick(
         Request $request,
         MenuRecommendationService $recommendationService
-    ): View {
+    ): View|RedirectResponse {
         $validated = $request->validate([
             'person_name' => [
                 'required',
@@ -57,6 +60,32 @@ class MakanController extends Controller
         ]);
 
         $personName = trim($validated['person_name']);
+        $sessionPersonName = $request->session()->get('makan.current_person_name');
+
+        /*
+        * Validate identity: if session has a person, request must match.
+        * This prevents accidental form tampering or stale form submissions.
+        */
+        if ($sessionPersonName !== null && $personName !== $sessionPersonName) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'person_name' => 'Identity mismatch. Please use "Switch user" to change.',
+                ]);
+        }
+
+        /*
+        * If person changed or this is first time, clear roulette rejections
+        * to prevent state leakage between people.
+        */
+        if ($sessionPersonName === null || $personName !== $sessionPersonName) {
+            $request->session()->forget('makan.rejected_item_ids');
+        }
+
+        /*
+        * Store person in session as authoritative identity.
+        */
+        $request->session()->put('makan.current_person_name', $personName);
 
         $categoryId = isset($validated['category_id'])
             ? (int) $validated['category_id']
@@ -128,10 +157,12 @@ class MakanController extends Controller
             ->limit(10)
             ->get();
 
+        $rememberedPersonName = $request->session()->get('makan.current_person_name');
 
         return view('makan.index', [
             'categories' => $categories,
             'recentChoices' => $recentChoices,
+            'rememberedPersonName' => $rememberedPersonName,
             'menuItem' => $menuItem,
             'personName' => $personName,
             'selectedCategoryId' => $categoryId,
@@ -146,8 +177,21 @@ class MakanController extends Controller
             'menu_item_id' => ['required', 'integer', 'exists:menu_items,id'],
         ]);
 
-        $menuItem = MenuItem::findOrFail($validated['menu_item_id']);
         $personName = trim($validated['person_name']);
+        $sessionPersonName = $request->session()->get('makan.current_person_name');
+
+        /*
+        * Validate identity: person_name in request must match session.
+        */
+        if ($personName !== $sessionPersonName) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'person_name' => 'Identity mismatch. Please use "Switch user" to change.',
+                ]);
+        }
+
+        $menuItem = MenuItem::findOrFail($validated['menu_item_id']);
 
         MealChoice::create([
             'person_name' => $personName,
@@ -163,5 +207,19 @@ class MakanController extends Controller
                 'success',
                 "{$personName} makan {$menuItem->name} hari ni! 🍽️"
             );
+    }
+
+    public function switchUser(Request $request): RedirectResponse
+    {
+        /*
+        * Clear both session keys to reset identity and roulette state.
+        * User must explicitly choose a new identity on the next request.
+        */
+        $request->session()->forget('makan.current_person_name');
+        $request->session()->forget('makan.rejected_item_ids');
+
+        return redirect()
+            ->route('makan.index')
+            ->with('success', 'Ready for the next person!');
     }
 }

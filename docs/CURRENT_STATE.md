@@ -121,6 +121,7 @@ Never treat the real `.env` file as documentation or source-controlled configura
 GET  /        -> MakanController@index
 POST /pick    -> MakanController@pick
 POST /accept  -> MakanController@accept
+POST /switch  -> MakanController@switchUser
 ```
 
 ## Current Domain Models
@@ -211,7 +212,27 @@ An item must:
 - match the optional selected category;
 - not be in the current roulette session's rejected-item list.
 
-### Temporary Rejection Memory
+### Session State
+
+Laravel sessions are stored in Redis. The following keys are used:
+
+**`makan.current_person_name`** (authoritative identity)
+- Stores the current person's name (trimmed string, max 50 chars).
+- Set whenever a valid roulette request is made.
+- Identity validation ensures request person_name matches this session value.
+- If person_name differs from session, request is rejected with a validation error.
+- When identity changes or is first set, `makan.rejected_item_ids` is automatically cleared to prevent roulette state leakage between people.
+- Cleared only by explicit "Switch user" action (POST /switch).
+- Session lifetime: 120 minutes (idle timeout).
+
+**`makan.rejected_item_ids`** (temporary roulette state)
+- Array of menu item IDs rejected during the current roulette session.
+- Filled when user clicks "Pick something else".
+- Cleared when user accepts a meal or starts a new roulette session.
+- Cleared automatically when person identity changes (prevents state leakage).
+- Does not persist across browser sessions or cookie clearing.
+
+### Temporary Rejection Memory (Legacy Naming)
 
 During a roulette session, rejected menu IDs are stored in the Laravel session under:
 
@@ -265,14 +286,34 @@ The home page is intentionally:
 The main UI currently contains:
 
 - MakanApa? branding;
-- user name input;
+- user name input (or remembered name display);
 - category selector;
 - **Choose for me** button;
+- **Switch user** button (only shown if name is remembered);
 - recommendation card;
 - **I'll have this** action;
 - **Pick something else** action;
 - skipped-option count during the current decision;
 - recent accepted choices.
+
+### Remembered Name Behavior
+
+When a user enters their name and clicks "Choose for me", the name is remembered in the browser session (Redis-backed).
+
+On subsequent visits in the same browser session (within 120 minutes of activity):
+- The remembered name is displayed prominently instead of an empty input field.
+- A "Switch user" button allows explicit identity changes.
+- The category selector and "Choose for me" button remain visible.
+
+When "Switch user" is clicked:
+- Both `makan.current_person_name` and `makan.rejected_item_ids` are cleared from the session.
+- The page redirects to the home page.
+- User sees an empty name input field again, ready to enter a new identity.
+
+If the user manually tries to change the name in the form during a roulette session (edge case):
+- The form submission fails with a validation error.
+- Error message: "Identity mismatch. Please use 'Switch user' to change."
+- This prevents accidental roulette state leakage.
 
 ## Known Temporary Limitation
 

@@ -69,3 +69,15 @@ Current history uses `person_name` strings rather than a foreign key to a users 
 Developer conversation may be informal, but application-facing copy should remain professional English unless product requirements change.
 
 **Reason:** The application is intended to feel like a real usable office tool rather than a tutorial/demo interface.
+
+## D008 - Cross-platform Vite file watching
+
+Windows Docker Desktop required polling for reliable Vite file watching.
+macOS Docker Desktop works correctly using native filesystem events.
+
+VITE_USE_POLLING controls the behavior:
+- false by default
+- true on Windows machines where bind-mount events are unreliable
+
+Vite CORS must allow http://localhost:8085 so the Laravel page can load
+the Vite development client from http://localhost:5173 and use HMR.

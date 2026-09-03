@@ -32,7 +32,7 @@ services:
 
         healthcheck:
             test:
-                ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootsecret"]
+                ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpassword"]
             interval: 5s
             timeout: 5s
             retries: 20
