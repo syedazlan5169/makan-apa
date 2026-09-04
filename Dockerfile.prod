@@ -83,6 +83,8 @@ RUN npm run build
 
 FROM php-base AS production
 
+LABEL org.opencontainers.image.source="https://github.com/syedazlan5169/makan-apa"
+
 COPY --from=composer-dependencies /var/www/html /var/www/html
 COPY --from=frontend-build /app/public/build /var/www/html/public/build
 
