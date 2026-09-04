@@ -115,6 +115,34 @@ SESSION_DRIVER=redis
 
 Never treat the real `.env` file as documentation or source-controlled configuration. `.env.example` should describe required keys without real secrets.
 
+## Production Images
+
+`Dockerfile.prod` produces two independent immutable images (no Compose wiring yet):
+
+```text
+docker build -f Dockerfile.prod --target production -t makan-apa-app .
+docker build -f Dockerfile.prod --target nginx-production -t makan-apa-nginx .
+```
+
+### `production` (PHP-FPM app image)
+
+Contains: Laravel source, production Composer dependencies, compiled Vite assets, PHP-FPM. Runs `php-fpm`. Unchanged by the Nginx work below.
+
+### `nginx-production` (Nginx image)
+
+Built from `nginx:1.30.4-alpine3.24`. Reuses the same `frontend-build` stage as `production`; both image targets build from that one stage, and BuildKit can reuse its cached result when the frontend inputs are unchanged, so both resulting images receive matching compiled Vite assets. Its `public/` directory contains exactly:
+
+```text
+index.php
+favicon.ico
+robots.txt
+build/
+```
+
+`index.php` is present only so Nginx's `try_files` resolves it as a real file — Nginx never executes PHP. Config lives at `docker/nginx/default.conf` and forwards only `location = /index.php` to `app:9000` over FastCGI (all other `.php` paths return 404). The upstream is resolved at request time via Docker's embedded DNS (`resolver 127.0.0.11`) rather than at Nginx startup, so `app` can start, restart, or be temporarily unavailable without failing Nginx's own startup. Access/error logs go to stdout/stderr. No ports are published in the Dockerfile.
+
+Not yet implemented: Docker Compose service definitions for `nginx-production` + `app`, the host Apache reverse proxy, and TLS.
+
 ## Current Routes
 
 ```text

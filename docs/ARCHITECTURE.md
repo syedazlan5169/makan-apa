@@ -143,15 +143,45 @@ php artisan serve
 
 is appropriate for development but is not the intended production architecture.
 
-A future VPS phase should separately design production concerns such as:
+### Production Image Design
 
-- Nginx or another production web server;
-- PHP-FPM;
-- immutable application image;
-- production dependency installation;
+`Dockerfile.prod` is a multi-stage build producing two independent, immutable images from one file:
+
+```text
+production        PHP-FPM application image (source, prod Composer deps, compiled Vite assets, php-fpm)
+nginx-production   Nginx image serving public/ and forwarding the front controller to php-fpm
+```
+
+`nginx-production` reuses the same `frontend-build` stage as `production`; both image targets build from that one stage, and BuildKit can reuse its cached result when the frontend inputs are unchanged, so both resulting images receive matching compiled Vite assets. The Nginx image intentionally contains only `public/index.php`, `public/favicon.ico`, `public/robots.txt`, and the compiled `public/build/` — no Composer/Node/PHP runtime and no other application source. `index.php` is present only so Nginx's `try_files` can resolve it as a real file; Nginx never executes PHP, it forwards the front controller to the `app` service on port 9000 over FastCGI.
+
+Planned request flow once Compose is introduced for this phase:
+
+```text
+Host Apache (TLS, public entry point)
+   |
+   | reverse proxy, bound to localhost only
+   v
+Docker Nginx (nginx-production image)
+   |
+   | static files served directly
+   | PHP/front-controller requests -> FastCGI
+   v
+PHP-FPM app container (production image)
+   |
+   +------> Docker Redis container
+   |          Temporary/session state
+   |
+   +------> Host MySQL 8.0 (not containerized)
+              Permanent application data, reached via host.docker.internal
+```
+
+Production database is deliberately **not** run in Docker. The `app` container reaches the existing host MySQL 8.0 instance through `host.docker.internal`, mapped via Docker's `host-gateway` extra host entry. The production Compose network uses the deliberately reserved subnet `172.30.10.0/24`, and the MySQL account is restricted to that subnet as `makanapa`@`172.30.10.0/24` (credentials are never documented here — see the real, non-committed `.env`).
+
+Remaining production concerns for a future phase:
+
 - secrets handling;
-- HTTPS;
-- persistent database/storage strategy;
+- HTTPS termination at host Apache;
+- Docker Compose wiring for Nginx, PHP-FPM, and Redis, plus the `host.docker.internal`/`host-gateway` mapping to host MySQL;
 - queues/workers;
 - Laravel scheduler;
 - health checks;
