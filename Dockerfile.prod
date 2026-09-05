@@ -88,7 +88,8 @@ LABEL org.opencontainers.image.source="https://github.com/syedazlan5169/makan-ap
 COPY --from=composer-dependencies /var/www/html /var/www/html
 COPY --from=frontend-build /app/public/build /var/www/html/public/build
 
-RUN mkdir -p \
+RUN rm -f public/hot public/fonts-manifest.dev.json \
+    && mkdir -p \
         storage/framework/cache/data \
         storage/framework/sessions \
         storage/framework/views \
