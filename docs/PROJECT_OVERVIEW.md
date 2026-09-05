@@ -56,7 +56,6 @@ The following are intentionally not completed yet so later development phases st
 - Advanced preference filters such as budget, spicy level, meal type, etc.
 - Admin CRUD for maintaining the real restaurant menu.
 - Statistics/analytics dashboard.
-- Production deployment architecture.
 - Automated tests with meaningful coverage.
 
 ## Development Journey
@@ -68,6 +67,6 @@ Development is intentionally split across machines:
 - **Office Windows PC** — Docker fundamentals and first working application.
 - **MacBook** — continue application features after cloning the same repository into a fresh Docker environment.
 - **Home Windows PC** — continue another development phase from a clean clone.
-- **VPS** — later learn proper production containerization and deployment.
+- **VPS** — completed production containerization and deployment behind the existing host Apache.
 
 The important learning goal is that no machine should require a manually installed project-specific PHP, Composer, Node.js, MySQL, or Redis runtime. Docker should provide the project environment.

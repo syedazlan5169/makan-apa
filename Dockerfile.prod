@@ -1,0 +1,120 @@
+FROM php:8.4-fpm AS php-base
+
+RUN savedAptMark="$(apt-mark showmanual)" \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libicu-dev \
+        libonig-dev \
+        libxml2-dev \
+        libzip-dev \
+        libcurl4-openssl-dev \
+        $PHPIZE_DEPS \
+    && docker-php-ext-install -j"$(nproc)" \
+        pdo_mysql \
+        zip \
+        intl \
+        mbstring \
+        bcmath \
+        pcntl \
+        curl \
+        xml \
+    && pecl install redis \
+    && docker-php-ext-enable redis \
+    && apt-mark auto '.*' > /dev/null \
+    && apt-mark manual $savedAptMark \
+    && apt-mark auto $PHPIZE_DEPS \
+    && runDeps="$(find /usr/local -type f -executable -exec ldd '{}' ';' \
+        | awk '/=>/ { print $3 }' \
+        | grep -v '^/usr/local/' \
+        | sed -e 's#^/##' -e 's#^usr/##' -e 's#^#*#' \
+        | sort -u \
+        | xargs -rt dpkg-query --search \
+        | awk 'sub(":$", "", $1) { print $1 }' \
+        | sort -u)" \
+    && printf '%s\n' "$runDeps" | xargs -r apt-mark manual \
+    && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
+    && rm -rf /var/lib/apt/lists/* /tmp/pear
+
+WORKDIR /var/www/html
+
+FROM php-base AS composer-dependencies
+
+ENV COMPOSER_ALLOW_SUPERUSER=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git \
+        unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+COPY composer.json composer.lock ./
+
+RUN composer install \
+        --no-dev \
+        --no-interaction \
+        --prefer-dist \
+        --no-progress \
+        --no-scripts \
+        --no-autoloader
+
+COPY . .
+
+RUN rm -f bootstrap/cache/*.php \
+    && composer dump-autoload \
+        --no-dev \
+        --optimize \
+        --no-scripts \
+    && php artisan package:discover --ansi
+
+FROM node:24-alpine AS frontend-build
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+
+RUN npm ci
+
+COPY . .
+
+RUN npm run build
+
+FROM php-base AS production
+
+LABEL org.opencontainers.image.source="https://github.com/syedazlan5169/makan-apa"
+
+COPY --from=composer-dependencies /var/www/html /var/www/html
+COPY --from=frontend-build /app/public/build /var/www/html/public/build
+
+RUN rm -f public/hot public/fonts-manifest.dev.json \
+    && mkdir -p \
+        storage/framework/cache/data \
+        storage/framework/sessions \
+        storage/framework/views \
+        storage/logs \
+        bootstrap/cache \
+    && chown -R www-data:www-data \
+        storage/framework/cache/data \
+        storage/framework/sessions \
+        storage/framework/views \
+        storage/logs \
+        bootstrap/cache \
+    && chmod -R ug+rwX \
+        storage/framework/cache/data \
+        storage/framework/sessions \
+        storage/framework/views \
+        storage/logs \
+        bootstrap/cache
+
+CMD ["php-fpm"]
+
+FROM nginx:1.30.4-alpine3.24 AS nginx-production
+
+LABEL org.opencontainers.image.source="https://github.com/syedazlan5169/makan-apa"
+
+# index.php is never executed here; it only satisfies try_files, PHP runs on the app (php-fpm) container
+COPY public/index.php public/favicon.ico public/robots.txt /var/www/html/public/
+COPY --from=frontend-build /app/public/build /var/www/html/public/build
+COPY docker/nginx/default.conf /etc/nginx/conf.d/default.conf
