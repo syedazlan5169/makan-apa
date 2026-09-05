@@ -1,0 +1,78 @@
+name: makanapa-prod
+
+services:
+    nginx:
+        image: ${NGINX_IMAGE}
+
+        ports:
+            - "127.0.0.1:8086:80"
+
+        healthcheck:
+            test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1/robots.txt"]
+            interval: 10s
+            timeout: 3s
+            retries: 5
+            start_period: 5s
+
+        depends_on:
+            app:
+                condition: service_healthy
+
+        networks:
+            - makanapa_prod
+
+        restart: unless-stopped
+
+    app:
+        image: ${APP_IMAGE}
+
+        env_file:
+            - shared/laravel.env
+
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
+
+        # liveness/readiness approximation only; full app health is checked post-deploy through nginx
+        healthcheck:
+            test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 9000, $$e, $$s, 2) ? 0 : 1);"]
+            interval: 10s
+            timeout: 3s
+            retries: 5
+            start_period: 10s
+
+        depends_on:
+            redis:
+                condition: service_healthy
+
+        networks:
+            - makanapa_prod
+
+        restart: unless-stopped
+
+    redis:
+        image: redis:7-alpine
+
+        volumes:
+            - redis_data:/data
+
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 10s
+            timeout: 3s
+            retries: 5
+
+        networks:
+            - makanapa_prod
+
+        restart: unless-stopped
+
+networks:
+    # subnet is deliberately reserved and matches the MySQL grant makanapa@172.30.10.0/24 on the host
+    makanapa_prod:
+        ipam:
+            config:
+                - subnet: 172.30.10.0/24
+
+volumes:
+    # session/cache/queue persistence across routine redeploys; not a backup
+    redis_data:

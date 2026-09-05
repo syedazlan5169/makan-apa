@@ -141,7 +141,33 @@ build/
 
 `index.php` is present only so Nginx's `try_files` resolves it as a real file — Nginx never executes PHP. Config lives at `docker/nginx/default.conf` and forwards only `location = /index.php` to `app:9000` over FastCGI (all other `.php` paths return 404). The upstream is resolved at request time via Docker's embedded DNS (`resolver 127.0.0.11`) rather than at Nginx startup, so `app` can start, restart, or be temporarily unavailable without failing Nginx's own startup. Access/error logs go to stdout/stderr. No ports are published in the Dockerfile.
 
-Not yet implemented: Docker Compose service definitions for `nginx-production` + `app`, the host Apache reverse proxy, and TLS.
+Not yet implemented: the host Apache reverse proxy and TLS.
+
+### Production Compose (`compose.prod.yaml`)
+
+Services: `nginx`, `app`, `redis` only (production uses the existing host MySQL 8.0 instead of a `db` container — no MySQL service here; no queue worker/scheduler — none are needed yet). No `build:` entries and no source bind mounts; images are pulled by full reference (`${APP_IMAGE}`, `${NGINX_IMAGE}`) from GHCR.
+
+Deployment directory on the VPS:
+
+```text
+/opt/makanapa/compose.prod.yaml
+/opt/makanapa/.env                    -- APP_IMAGE, NGINX_IMAGE (full image references only)
+/opt/makanapa/shared/laravel.env      -- Laravel runtime config + secrets, never committed
+```
+
+The committed template for the server-local secrets file is [`docker/production/laravel.env.example`](../docker/production/laravel.env.example).
+
+Deploy workflow:
+
+```text
+docker compose -f compose.prod.yaml pull
+docker compose -f compose.prod.yaml run --rm app php artisan migrate --force
+docker compose -f compose.prod.yaml up -d
+```
+
+Rollback is changing `APP_IMAGE`/`NGINX_IMAGE` in `/opt/makanapa/.env` to a prior tag or digest, then repeating `pull`/`up -d`. Image rollback does not undo database migrations — migration compatibility across app versions must be considered separately.
+
+Health/dependency notes: `redis` uses `redis-cli ping`; `app` uses a PHP `fsockopen` TCP check against port 9000 (approximation only); `nginx` depends on `app` (`service_healthy`), `app` depends on `redis` (`service_healthy`). Nginx publishes only `127.0.0.1:8086:80`; `app`/`redis` publish no ports. Network subnet is `172.30.10.0/24`, matching the host MySQL grant restriction. `redis_data` is a named volume (persistence for routine redeploys, not a backup).
 
 ## Current Routes
 

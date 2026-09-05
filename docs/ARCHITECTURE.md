@@ -177,15 +177,33 @@ PHP-FPM app container (production image)
 
 Production database is deliberately **not** run in Docker. The `app` container reaches the existing host MySQL 8.0 instance through `host.docker.internal`, mapped via Docker's `host-gateway` extra host entry. The production Compose network uses the deliberately reserved subnet `172.30.10.0/24`, and the MySQL account is restricted to that subnet as `makanapa`@`172.30.10.0/24` (credentials are never documented here — see the real, non-committed `.env`).
 
+### Production Compose
+
+`compose.prod.yaml` defines exactly three services: `nginx`, `app`, `redis`. It has no `build:` entries (production never builds on the VPS) and no source bind mounts.
+
+```text
+docker compose -f compose.prod.yaml pull
+docker compose -f compose.prod.yaml run --rm app php artisan migrate --force
+docker compose -f compose.prod.yaml up -d
+```
+
+- `nginx` and `app` reference full image strings via `${NGINX_IMAGE}` / `${APP_IMAGE}` (e.g. `ghcr.io/syedazlan5169/makan-apa-nginx:024e18e`, `ghcr.io/syedazlan5169/makan-apa:024e18e`), so a rollback is a matter of changing these two variables to a prior tag or digest and re-running `pull`/`up -d` — no rebuild required.
+- `nginx` publishes only `127.0.0.1:8086:80`. `app` and `redis` publish no ports; they are reachable solely via `app:9000` / `redis:6379` on the `makanapa_prod` network.
+- `app` depends on `redis` with `condition: service_healthy`; `nginx` depends on `app` with `condition: service_healthy`. `depends_on` only sequences initial startup — it is not ongoing orchestration, so a later Redis restart does not automatically re-gate `app`.
+- `app`'s healthcheck is a PHP `fsockopen` TCP probe against `127.0.0.1:9000` (no extra packages) — a liveness/readiness approximation, not a full application check. Real application health is verified by a post-deployment HTTP smoke test through `nginx`.
+- `redis` uses a named volume (`redis_data`) for session/cache/queue continuity across routine redeploys — this is persistence, not backup, and holds no durable business data (`D003`).
+- Laravel runtime configuration/secrets are injected into `app` via `env_file: shared/laravel.env`, a server-local file (never committed) at `/opt/makanapa/shared/laravel.env`. The committed template for that file is [`docker/production/laravel.env.example`](../docker/production/laravel.env.example). It sets `LOG_CHANNEL=stderr` (an existing Monolog channel, no new logging infrastructure) so application errors are visible via `docker compose logs app`.
+- No queue worker or scheduler service exists yet — the codebase dispatches no jobs and defines no scheduled commands. Add them only when genuinely needed, reusing the same `app` image (no separate build).
+
 Remaining production concerns for a future phase:
 
-- secrets handling;
+- secrets handling for `/opt/makanapa/shared/laravel.env` (creation/rotation);
 - HTTPS termination at host Apache;
-- Docker Compose wiring for Nginx, PHP-FPM, and Redis, plus the `host.docker.internal`/`host-gateway` mapping to host MySQL;
-- queues/workers;
-- Laravel scheduler;
-- health checks;
+- host Apache reverse proxy configuration to `127.0.0.1:8086`;
+- queues/workers, once real jobs exist;
+- Laravel scheduler, once real scheduled tasks exist;
+- FPM `ping`/`status` endpoints for a stronger app healthcheck;
 - backups;
-- logging/monitoring.
+- logging/monitoring beyond container stdout/stderr.
 
 Do not prematurely convert the current development Compose stack into production configuration during unrelated feature development.
