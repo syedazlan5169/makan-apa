@@ -1,19 +1,40 @@
 # MakanApa? — Current State
 
-> This file records the exact hand-off point at the end of the Office-PC development phase. Update it whenever a development phase is completed.
+> This file records the exact hand-off point after the completed production Docker deployment. Update it whenever a development or deployment phase is completed.
+
+## Deployment Status
+
+Production is live at:
+
+```text
+https://makanapa.sydigitalsolution.com
+```
+
+`https://www.makanapa.sydigitalsolution.com` is also supported. Both DNS names point to DigitalOcean Reserved IP `146.190.6.224`, which routes to the production Droplet at public IPv4 `152.42.188.223`. HTTP redirects permanently to HTTPS.
+
+The VPS runs Ubuntu 22.04.5 LTS on `onlinekad` (`amd64` / `x86_64`, 2 vCPU, about 3.8 GiB RAM, no swap), with Docker Engine 29.7.2 and Docker Compose v5.5.0.
+
+The current production release is commit `011a50d` (`fix: exclude Vite development artifacts from production`):
+
+```text
+Application: ghcr.io/syedazlan5169/makan-apa@sha256:b6497dc08c518ad3006885fdbedef140ce63e1f8694cb75255a42cbb94831405
+Nginx:       ghcr.io/syedazlan5169/makan-apa-nginx@sha256:f8de31dd45b6963a09e93a0794f7a3f1fb9735a47915f01ef29fff40f9e8b528
+```
+
+Production has been verified through the public URL: HTTP-to-HTTPS redirect, HTTPS HTTP/2 response, `www` hostname, generated HTTPS URLs, secure cookies, compiled CSS/JS assets, Redis and host-MySQL connectivity, health checks, Docker daemon restart recovery, app-only release replacement, and browsers on Mac and mobile.
 
 ## Application Stack
 
 - Laravel 13.x
-- PHP 8.4 CLI development container
-- MySQL 8.4
+- PHP 8.4
+- MySQL 8.4 in development; existing host MySQL in production
 - Redis 7 Alpine
-- Node.js 24 Alpine
+- Node.js 24 Alpine for development and image builds
 - Vite 8.x
 - Tailwind CSS via Vite
 - Docker Compose
 
-`compose.yaml` is the source of truth for exact image tags, ports, services, and volume names.
+`compose.yaml` is the source of truth for the local development environment. `compose.prod.yaml` is the source of truth for the production Docker stack.
 
 ## Docker Services
 
@@ -115,59 +136,63 @@ SESSION_DRIVER=redis
 
 Never treat the real `.env` file as documentation or source-controlled configuration. `.env.example` should describe required keys without real secrets.
 
-## Production Images
+## Production Runtime
 
-`Dockerfile.prod` produces two independent immutable images (no Compose wiring yet):
+The production Compose project is `makanapa-prod` and runs `nginx`, `app`, and `redis`; there is deliberately no MySQL container, queue worker, or scheduler. `nginx` alone is host-published at `127.0.0.1:8086:80`; the app's PHP-FPM port `9000` and Redis port `6379` are internal to Docker only.
 
-```text
-docker build -f Dockerfile.prod --target production -t makan-apa-app .
-docker build -f Dockerfile.prod --target nginx-production -t makan-apa-nginx .
-```
-
-### `production` (PHP-FPM app image)
-
-Contains: Laravel source, production Composer dependencies, compiled Vite assets, PHP-FPM. Runs `php-fpm`. Unchanged by the Nginx work below.
-
-### `nginx-production` (Nginx image)
-
-Built from `nginx:1.30.4-alpine3.24`. Reuses the same `frontend-build` stage as `production`; both image targets build from that one stage, and BuildKit can reuse its cached result when the frontend inputs are unchanged, so both resulting images receive matching compiled Vite assets. Its `public/` directory contains exactly:
+The deployment directory is:
 
 ```text
-index.php
-favicon.ico
-robots.txt
-build/
+/opt/makanapa/
+├── compose.prod.yaml
+├── .env
+└── shared/
+    └── laravel.env
 ```
 
-`index.php` is present only so Nginx's `try_files` resolves it as a real file — Nginx never executes PHP. Config lives at `docker/nginx/default.conf` and forwards only `location = /index.php` to `app:9000` over FastCGI (all other `.php` paths return 404). The upstream is resolved at request time via Docker's embedded DNS (`resolver 127.0.0.11`) rather than at Nginx startup, so `app` can start, restart, or be temporarily unavailable without failing Nginx's own startup. Access/error logs go to stdout/stderr. No ports are published in the Dockerfile.
+`/opt/makanapa/.env` is solely Docker Compose interpolation for `APP_IMAGE` and `NGINX_IMAGE`. It is not Laravel's runtime environment file. Laravel configuration and production secrets are in `/opt/makanapa/shared/laravel.env`, which is mode `600` and never committed. The committed template is [`docker/production/laravel.env.example`](../docker/production/laravel.env.example).
 
-Not yet implemented: the host Apache reverse proxy and TLS.
+All services use `restart: unless-stopped`. Restarting the Docker daemon successfully restored all three healthy containers without another `docker compose up -d`; this recovery is provided by Docker Engine's restart policy. Cold startup is ordered Redis healthy -> app healthy -> Nginx starts. `depends_on` coordinates startup only; it does not provide full runtime orchestration.
 
-### Production Compose (`compose.prod.yaml`)
+Redis uses the `redis_data` named volume for session, cache, and queue-backend persistence across routine redeploys. The volume survived `docker compose down` followed by `docker compose up -d`. It is not a backup; do not casually run `docker compose down -v` in production.
 
-Services: `nginx`, `app`, `redis` only (production uses the existing host MySQL 8.0 instead of a `db` container — no MySQL service here; no queue worker/scheduler — none are needed yet). No `build:` entries and no source bind mounts; images are pulled by full reference (`${APP_IMAGE}`, `${NGINX_IMAGE}`) from GHCR.
+## Production Release Operations
 
-Deployment directory on the VPS:
+Production images are built for `linux/amd64` with Docker Buildx, pushed to GHCR, and deployed by immutable digest. Application and Nginx images are independently replaceable. A live release proved that changing only `APP_IMAGE` recreates only the app container while Nginx and Redis remain running.
+
+The current release workflow is:
 
 ```text
-/opt/makanapa/compose.prod.yaml
-/opt/makanapa/.env                    -- APP_IMAGE, NGINX_IMAGE (full image references only)
-/opt/makanapa/shared/laravel.env      -- Laravel runtime config + secrets, never committed
+1. Commit and push the release commit.
+2. Build and push linux/amd64 images, then obtain their immutable digests.
+3. On the VPS, pull the selected digests and update APP_IMAGE and/or NGINX_IMAGE in /opt/makanapa/.env.
+4. Validate: sudo docker compose -f compose.prod.yaml config -q
+5. When required, run: sudo docker compose -f compose.prod.yaml run --rm app php artisan migrate --force
+6. Deploy: sudo docker compose -f compose.prod.yaml up -d
+7. Check: sudo docker compose -f compose.prod.yaml ps
+8. Smoke test: curl -I https://makanapa.sydigitalsolution.com/
+9. Review app and Nginx logs.
 ```
 
-The committed template for the server-local secrets file is [`docker/production/laravel.env.example`](../docker/production/laravel.env.example).
+Migrations are deliberately not run during container startup. They are an explicit release operation, and image rollback does not undo a database migration. Retain the previous immutable digest for rollback, assess database compatibility separately, then update the image variable and run `up -d`.
 
-Deploy workflow:
+The deployment user is intentionally not in the Docker group because that membership grants root-level host control. Production Docker commands use `sudo docker ...`. The root Docker CLI uses a separate read-only GHCR package credential; its value is never documented.
 
-```text
-docker compose -f compose.prod.yaml pull
-docker compose -f compose.prod.yaml run --rm app php artisan migrate --force
-docker compose -f compose.prod.yaml up -d
-```
+## Production Vite Rule
 
-Rollback is changing `APP_IMAGE`/`NGINX_IMAGE` in `/opt/makanapa/.env` to a prior tag or digest, then repeating `pull`/`up -d`. Image rollback does not undo database migrations — migration compatibility across app versions must be considered separately.
+`public/hot` must never exist in a production Laravel/Vite image. Its presence makes Laravel Vite treat a development server as active, causing browser asset URLs to point at `http://localhost:5173` instead of the deployed build assets.
 
-Health/dependency notes: `redis` uses `redis-cli ping`; `app` uses a PHP `fsockopen` TCP check against port 9000 (approximation only); `nginx` depends on `app` (`service_healthy`), `app` depends on `redis` (`service_healthy`). Nginx publishes only `127.0.0.1:8086:80`; `app`/`redis` publish no ports. Network subnet is `172.30.10.0/24`, matching the host MySQL grant restriction. `redis_data` is a named volume (persistence for routine redeploys, not a backup).
+This caused a production incident before release `011a50d`: browsers on Mac could hang or request local-network access, and mobile browsers rendered unstyled HTML because `localhost` referred to the client device. The permanent fix excludes `public/hot` and `public/fonts-manifest.dev.json` in `.dockerignore` and removes both defensively in the final production app image. Production-image validation confirmed both artifacts absent and `public/build/manifest.json` present; live HTML now references only deployed HTTPS `/build/assets/...` URLs.
+
+## Production Data State
+
+The initial production migrations have run. The production database was seeded from the real restaurant menu in `MenuSeeder`: it now contains 12 categories and 197 items, and the homepage has been verified with categories including `Ayam & Daging`, `Mee / Bihun / Kuey Teow / Maggi`, `Nasi Goreng`, and `Tomyam`.
+
+`DatabaseSeeder` calls `MenuSeeder`. The menu seeder runs inside a transaction and is idempotent for matching category/item names through `firstOrCreate()` and `updateOrCreate()`. It prevents duplicate matching records but does not delete records removed from the seeder later; any future menu synchronization needs an explicit deletion policy.
+
+## Backup Status
+
+Automated database backups are deferred and not yet configured for MakanApa. The existing OnlineKad backup process does not protect the `makanapa` database. Redis persistence is not a backup.
 
 ## Current Routes
 

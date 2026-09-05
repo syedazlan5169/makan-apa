@@ -1,6 +1,6 @@
 # MakanApa? — Architecture
 
-## High-Level Architecture
+## Development Request Architecture
 
 ```text
 Browser
@@ -133,77 +133,64 @@ The host primarily needs Docker, Git, and an editor.
 
 ## Development vs Production
 
-The current Docker setup is a development environment.
+The local Compose environment remains a development environment. In particular, `php artisan serve`, source bind mounts, the MySQL development container, and the Vite development server are appropriate for local development but are not part of the production request path.
 
-In particular:
-
-```text
-php artisan serve
-```
-
-is appropriate for development but is not the intended production architecture.
-
-### Production Image Design
-
-`Dockerfile.prod` is a multi-stage build producing two independent, immutable images from one file:
+## Production Request Architecture
 
 ```text
-production        PHP-FPM application image (source, prod Composer deps, compiled Vite assets, php-fpm)
-nginx-production   Nginx image serving public/ and forwarding the front controller to php-fpm
-```
-
-`nginx-production` reuses the same `frontend-build` stage as `production`; both image targets build from that one stage, and BuildKit can reuse its cached result when the frontend inputs are unchanged, so both resulting images receive matching compiled Vite assets. The Nginx image intentionally contains only `public/index.php`, `public/favicon.ico`, `public/robots.txt`, and the compiled `public/build/` — no Composer/Node/PHP runtime and no other application source. `index.php` is present only so Nginx's `try_files` can resolve it as a real file; Nginx never executes PHP, it forwards the front controller to the `app` service on port 9000 over FastCGI.
-
-Planned request flow once Compose is introduced for this phase:
-
-```text
-Host Apache (TLS, public entry point)
+Internet
    |
-   | reverse proxy, bound to localhost only
    v
-Docker Nginx (nginx-production image)
-   |
-   | static files served directly
-   | PHP/front-controller requests -> FastCGI
+Host Apache :80/:443
+   |  TLS termination and reverse proxy
    v
-PHP-FPM app container (production image)
+127.0.0.1:8086
    |
-   +------> Docker Redis container
-   |          Temporary/session state
-   |
-   +------> Host MySQL 8.0 (not containerized)
-              Permanent application data, reached via host.docker.internal
+   v
+Docker Nginx
+   |  static files / FastCGI
+   v
+Docker PHP-FPM Laravel app
+   |                         |
+   v                         v
+Docker Redis              host.docker.internal:3306
+                                 |
+                                 v
+                            Host MySQL
 ```
 
-Production database is deliberately **not** run in Docker. The `app` container reaches the existing host MySQL 8.0 instance through `host.docker.internal`, mapped via Docker's `host-gateway` extra host entry. The production Compose network uses the deliberately reserved subnet `172.30.10.0/24`, and the MySQL account is restricted to that subnet as `makanapa`@`172.30.10.0/24` (credentials are never documented here — see the real, non-committed `.env`).
+Apache remains the public web server because the VPS hosts existing non-Docker applications. Its HTTP virtual host redirects permanently to HTTPS; the Certbot-managed HTTPS virtual host covers both MakanApa hostnames and proxies to `http://127.0.0.1:8086/` with `ProxyPreserveHost On`. Apache sets `X-Forwarded-Proto: https` and `X-Forwarded-Port: 443` so Laravel receives the original secure-request context.
 
-### Production Compose
+Only Docker Nginx publishes a host port, bound deliberately to `127.0.0.1:8086:80`. PHP-FPM (`app:9000`) and Redis (`redis:6379`) are internal to the dedicated Docker network. Laravel trusts only proxy addresses from `172.30.10.0/24`; it must not trust all proxies unless the architecture changes.
 
-`compose.prod.yaml` defines exactly three services: `nginx`, `app`, `redis`. It has no `build:` entries (production never builds on the VPS) and no source bind mounts.
+Nginx serves static public assets and forwards only `/index.php` to PHP-FPM over FastCGI. Other `.php` requests return `404`, and hidden files are denied. It uses Docker's embedded resolver (`127.0.0.11`) to resolve `app:9000` at request time, allowing the app container to start or restart independently of Nginx startup.
 
-```text
-docker compose -f compose.prod.yaml pull
-docker compose -f compose.prod.yaml run --rm app php artisan migrate --force
-docker compose -f compose.prod.yaml up -d
-```
+## Production Data and Network Architecture
 
-- `nginx` and `app` reference full image strings via `${NGINX_IMAGE}` / `${APP_IMAGE}` (e.g. `ghcr.io/syedazlan5169/makan-apa-nginx:024e18e`, `ghcr.io/syedazlan5169/makan-apa:024e18e`), so a rollback is a matter of changing these two variables to a prior tag or digest and re-running `pull`/`up -d` — no rebuild required.
-- `nginx` publishes only `127.0.0.1:8086:80`. `app` and `redis` publish no ports; they are reachable solely via `app:9000` / `redis:6379` on the `makanapa_prod` network.
-- `app` depends on `redis` with `condition: service_healthy`; `nginx` depends on `app` with `condition: service_healthy`. `depends_on` only sequences initial startup — it is not ongoing orchestration, so a later Redis restart does not automatically re-gate `app`.
-- `app`'s healthcheck is a PHP `fsockopen` TCP probe against `127.0.0.1:9000` (no extra packages) — a liveness/readiness approximation, not a full application check. Real application health is verified by a post-deployment HTTP smoke test through `nginx`.
-- `redis` uses a named volume (`redis_data`) for session/cache/queue continuity across routine redeploys — this is persistence, not backup, and holds no durable business data (`D003`).
-- Laravel runtime configuration/secrets are injected into `app` via `env_file: shared/laravel.env`, a server-local file (never committed) at `/opt/makanapa/shared/laravel.env`. The committed template for that file is [`docker/production/laravel.env.example`](../docker/production/laravel.env.example). It sets `LOG_CHANNEL=stderr` (an existing Monolog channel, no new logging infrastructure) so application errors are visible via `docker compose logs app`.
-- No queue worker or scheduler service exists yet — the codebase dispatches no jobs and defines no scheduled commands. Add them only when genuinely needed, reusing the same `app` image (no separate build).
+Production Compose defines exactly three services: `nginx`, `app`, and `redis`. MySQL remains on the host rather than in the Compose stack. The app reaches it through `host.docker.internal:3306`, provided by Compose's `host-gateway` extra-host mapping.
 
-Remaining production concerns for a future phase:
+The `makanapa_prod` network deliberately uses `172.30.10.0/24`, selected after checking existing host routes to avoid collisions. The host MySQL account is limited to `makanapa.*` and the `makanapa`@`172.30.10.0/24` source subnet. This isolates MakanApa database access from containers on Docker's default network while preserving the host MySQL accessibility required by other VPS applications.
 
-- secrets handling for `/opt/makanapa/shared/laravel.env` (creation/rotation);
-- HTTPS termination at host Apache;
-- host Apache reverse proxy configuration to `127.0.0.1:8086`;
-- queues/workers, once real jobs exist;
-- Laravel scheduler, once real scheduled tasks exist;
-- FPM `ping`/`status` endpoints for a stronger app healthcheck;
-- backups;
-- logging/monitoring beyond container stdout/stderr.
+Redis uses the `redis_data` named volume and stores Laravel sessions, cache, and the configured queue backend. Its persistence supports routine container recreation, but it is not a database or backup. Production has no queue worker or scheduler because the application currently has no jobs or scheduled tasks. Future workers or schedulers must reuse the same application image.
 
-Do not prematurely convert the current development Compose stack into production configuration during unrelated feature development.
+## Production Image Architecture
+
+`Dockerfile.prod` is a multi-stage build with `php-base`, `composer-dependencies`, `frontend-build`, `production`, and `nginx-production` stages. Images are built as `linux/amd64` for the VPS, including when Docker Buildx builds them from an Apple Silicon machine.
+
+The `production` image contains PHP 8.4 FPM, Laravel source, production Composer dependencies, and compiled Vite assets. It excludes Node/npm, Composer, and the build toolchain. Required Laravel writable directories are prepared during the build. Production code is immutable inside the image; no source-code bind mount is used.
+
+The `nginx-production` image contains only the Nginx-required public assets: `index.php`, `favicon.ico`, `robots.txt`, and `public/build`. It does not contain the Laravel source tree, PHP, Composer, or Node. Both images obtain matching compiled assets from the shared frontend-build stage.
+
+`public/hot` and `public/fonts-manifest.dev.json` are excluded from the build context and removed again from the final application image. This prevents Laravel Vite from mistaking a production image for an active development-server environment.
+
+## Production Configuration, Release, and Recovery
+
+The VPS deployment directory is `/opt/makanapa`. Its `.env` provides only Compose image interpolation (`APP_IMAGE` and `NGINX_IMAGE`), while `/opt/makanapa/shared/laravel.env` is the mode-600, server-local Laravel runtime configuration and secret file injected with `env_file`. The committed template is [`docker/production/laravel.env.example`](../docker/production/laravel.env.example); real values are never committed or documented.
+
+Production images are pulled from GHCR by immutable digest. Application and Nginx images can be replaced independently, allowing a release or rollback without rebuilding on the VPS. Database migrations are intentionally explicit release operations, not container-startup behavior. A corresponding database rollback or compatibility assessment remains separate from image rollback.
+
+All services use `restart: unless-stopped`. Redis health is checked with `redis-cli ping`, the app healthcheck verifies its local PHP-FPM port, and Nginx checks `/robots.txt`. Cold startup is Redis healthy -> app healthy -> Nginx starts. `depends_on` provides this startup coordination only; Docker Engine restart policies recover containers after a Docker daemon restart.
+
+Post-deployment HTTP smoke testing through the public HTTPS endpoint and app/Nginx log review provide application-level verification beyond container health checks.
+
+Automated MakanApa database backups are intentionally deferred and not yet configured. The Redis volume is not a backup.

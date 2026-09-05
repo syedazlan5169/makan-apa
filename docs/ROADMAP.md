@@ -137,28 +137,11 @@ Examples:
 
 Keep analytics separate from the primary meal-selection flow.
 
-## Later VPS / Production Phase
+## Completed — VPS Production Docker Deployment
 
-Treat this as a Docker/deployment lesson rather than simply copying development Compose to a server.
+The production Docker deployment is complete and live behind the existing host Apache. It includes immutable PHP-FPM and Nginx images, Redis, host MySQL access through the dedicated Docker network, HTTPS, reverse proxying, health checks, restart recovery, explicit migrations, and digest-based deployment/rollback.
 
-Topics to design deliberately:
-
-- production PHP-FPM image;
-- Nginx;
-- immutable application code in image;
-- production Composer install;
-- frontend asset build;
-- secrets/environment variables;
-- MySQL persistence or managed DB decision;
-- Redis persistence/role;
-- queues;
-- scheduler;
-- HTTPS;
-- reverse proxy/networking;
-- database backup strategy;
-- application logs;
-- health checks;
-- deployment and rollback workflow.
+Automated MakanApa database backups remain intentionally deferred and are not yet configured. Queue workers and the scheduler remain deferred until the application has jobs or scheduled tasks that require them.
 
 ## Ideas Parking Lot
 
