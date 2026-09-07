@@ -44,19 +44,19 @@ The Office-PC development phase delivered the first working vertical slice:
 - Recency-based recommendation weighting.
 - Rejection-based recommendation weighting.
 - Recent office choices shown on the home page.
+- Anonymous menu suggestions with admin moderation before a suggestion becomes a menu item.
+- Minimal admin authentication for menu-submission moderation.
 - Professional English UI.
 
 ## Current Non-Goals
 
 The following are intentionally not completed yet so later development phases still have meaningful work:
 
-- Full authentication.
-- Proper employee/user profiles.
+- Member registration, login, profiles, and submission history.
 - Favorites and ratings.
 - Advanced preference filters such as budget, spicy level, meal type, etc.
 - Admin CRUD for maintaining the real restaurant menu.
 - Statistics/analytics dashboard.
-- Automated tests with meaningful coverage.
 
 ## Development Journey
 

@@ -190,6 +190,13 @@ The initial production migrations have run. The production database was seeded f
 
 `DatabaseSeeder` calls `MenuSeeder`. The menu seeder runs inside a transaction and is idempotent for matching category/item names through `firstOrCreate()` and `updateOrCreate()`. It prevents duplicate matching records but does not delete records removed from the seeder later; any future menu synchronization needs an explicit deletion policy.
 
+The Menu Submission Moderation feature is implemented locally and requires its
+additive migrations before production deployment. Before applying the new
+unique `(menu_category_id, name)` index to production `menu_items`, preflight
+for duplicate pairs using the production MySQL collation. Include legacy names
+with repeated/internal whitespace that may normalize to the same logical menu
+name. Do not perform automatic cleanup; resolve duplicates deliberately.
+
 ## Backup Status
 
 Automated database backups are deferred and not yet configured for MakanApa. The existing OnlineKad backup process does not protect the `makanapa` database. Redis persistence is not a backup.
@@ -201,6 +208,14 @@ GET  /        -> MakanController@index
 POST /pick    -> MakanController@pick
 POST /accept  -> MakanController@accept
 POST /switch  -> MakanController@switchUser
+GET  /suggest-menu -> MenuSubmissionController@create
+POST /suggest-menu -> MenuSubmissionController@store (5 requests/minute/IP)
+GET  /admin/login -> AdminAuthenticatedSessionController@create (guest only)
+POST /admin/login -> AdminAuthenticatedSessionController@store (guest only, rate-limited)
+POST /admin/logout -> AdminAuthenticatedSessionController@destroy (auth + admin)
+GET  /admin/menu-submissions -> AdminMenuSubmissionController@index (auth + admin)
+PATCH /admin/menu-submissions/{menuSubmission}/approve -> AdminMenuSubmissionController@approve (auth + admin)
+PATCH /admin/menu-submissions/{menuSubmission}/reject -> AdminMenuSubmissionController@reject (auth + admin)
 ```
 
 ## Current Domain Models
@@ -241,6 +256,60 @@ Relationships:
 ```text
 MenuItem belongsTo MenuCategory
 MenuItem hasMany MealChoice
+MenuItem hasMany MenuSubmission
+```
+
+`menu_items` contains approved menu items only. Its `(menu_category_id, name)`
+unique index is the final integrity guarantee for approved item identity.
+
+### MenuSubmission
+
+Records an anonymous or future authenticated-member menu suggestion and its
+moderation history.
+
+Key fields:
+
+```text
+id
+menu_category_id
+name (normalized surrounding/repeated whitespace)
+user_id nullable
+status (pending, approved, rejected)
+menu_item_id nullable
+reviewed_by nullable
+reviewed_at nullable
+review_notes nullable
+timestamps
+```
+
+Relationships:
+
+```text
+MenuSubmission belongsTo MenuCategory
+MenuSubmission belongsTo optional submitting User
+MenuSubmission belongsTo optional resulting MenuItem
+MenuSubmission belongsTo optional reviewing User
+```
+
+Anonymous submissions have `user_id = null`. Pending and rejected submissions
+never enter the roulette because the recommendation service queries only active
+`MenuItem` records.
+
+### User Roles and Admin Access
+
+`users.role` is a normal string with a `member` default. Current application
+roles are `admin` and `member`, but only admin behavior is implemented.
+
+Admin authentication uses Laravel's `web` session guard. Login validates admin
+credentials, regenerates the session, and is rate-limited. Logout is POST-only,
+logs out, invalidates the session, and regenerates the CSRF token. Admin routes
+require both `auth` and `admin` middleware.
+
+There is no public registration route and no member profile, login, or
+submission-history UI. Create the first admin with:
+
+```bash
+docker compose exec app php artisan makan:create-admin
 ```
 
 ### MealChoice
@@ -290,6 +359,12 @@ An item must:
 - be active;
 - match the optional selected category;
 - not be in the current roulette session's rejected-item list.
+
+Menu submissions are not eligible directly. Approval transactionally creates
+or safely reuses an active `MenuItem`, links it to the submission, and records
+the reviewing admin and time. Rejection records the review without creating a
+menu item. Submission creation and approval coordinate through category locks;
+reviews lock the submission and only pending records can transition.
 
 ### Session State
 
@@ -372,6 +447,7 @@ The main UI currently contains:
 - recommendation card;
 - **I'll have this** action;
 - **Pick something else** action;
+- **Suggest a menu** entry point and public form;
 - skipped-option count during the current decision;
 - recent accepted choices.
 
@@ -396,4 +472,16 @@ If the user manually tries to change the name in the form during a roulette sess
 
 ## Known Temporary Limitation
 
-Identity is still based on a plain `person_name` string. This is intentionally left for a future development phase. Do not silently introduce authentication or a user table while working on unrelated tasks.
+Roulette identity and meal history remain based on a plain `person_name`
+string. This is intentionally independent from the new admin authentication
+boundary. Future member accounts must map or migrate historical name-based data
+carefully; member registration, profiles, and submission-history UI are not
+implemented.
+
+## Verification Status
+
+The Menu Submission Moderation feature has passed focused moderation/admin-auth
+tests (22 tests, 99 assertions), the full Laravel suite (37 tests, 139
+assertions), `git diff --check`, and manual local testing of submission,
+moderation, and roulette eligibility flows. The application also now includes a
+custom MakanApa favicon at `public/favicon.ico`.

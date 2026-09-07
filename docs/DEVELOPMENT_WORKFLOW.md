@@ -109,6 +109,24 @@ Example:
 docker compose exec app php artisan migrate
 ```
 
+Before applying the `menu_items(menu_category_id, name)` unique index to an
+existing production database, explicitly preflight for duplicate category/name
+pairs. The check must account for MySQL's case-insensitive menu-name collation
+and legacy internal or repeated whitespace. Do not perform automatic cleanup;
+resolve any production duplicates deliberately before migrating.
+
+## Administrator Bootstrap
+
+There is no public admin registration route. Create the initial administrator
+through an interactive application-container command:
+
+```bash
+docker compose exec app php artisan makan:create-admin
+```
+
+The command prompts for name, email, and a hidden password. It refuses an
+existing email instead of changing that account's role.
+
 ## Dependency Changes
 
 ### PHP

@@ -165,6 +165,10 @@
 
         </form>
 
+        <a class="secondary-link" href="{{ route('menu-submissions.create') }}">
+            Suggest a menu
+        </a>
+
         @if ($rememberedPersonName)
 
             <form

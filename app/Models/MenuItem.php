@@ -36,4 +36,9 @@ class MenuItem extends Model
     {
         return $this->hasMany(MealChoice::class);
     }
+
+    public function menuSubmissions(): HasMany
+    {
+        return $this->hasMany(MenuSubmission::class);
+    }
 }

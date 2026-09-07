@@ -191,3 +191,51 @@ Laravel trusts proxies only from `172.30.10.0/24`, and production enables `SESSI
 MakanApa database backups are not yet configured. Redis persistence is not treated as a backup.
 
 **Reason:** Backup design and operation will be configured separately. Documentation must state this gap accurately rather than imply existing coverage.
+
+---
+
+## D020 — Menu Submissions Are Separate From Approved Menu Items
+
+**Status:** Accepted
+
+Visitor suggestions are stored in `menu_submissions`, not directly in
+`menu_items`. A submission records category, normalized name, nullable future
+submitter, status, reviewer, review time, notes, and resulting item.
+
+**Reason:** `menu_items` must retain the simple invariant that every record is
+approved and eligible for normal menu use. Pending and rejected suggestions
+remain durable moderation history without affecting roulette eligibility. The
+nullable `user_id` supports a future member account without redesigning the
+moderation table.
+
+---
+
+## D021 — Administration Uses Minimal Laravel-Native Session Authentication
+
+**Status:** Accepted
+
+The configured Laravel `web` session guard authenticates administrators. Users
+have a string role with a `member` default; `admin` is the only privileged role
+currently used. Moderation routes require both `auth` and application admin
+authorization. There is no public registration, and the initial admin is
+created through `makan:create-admin`.
+
+**Reason:** The feature needs a secure administration boundary without adding
+Breeze, Fortify, Jetstream, or a permissions package. The simple role field can
+grow beyond the initial admin/member values when the product has a real need.
+
+---
+
+## D022 — Menu Moderation Uses Transactions, Locks, and a Database Constraint
+
+**Status:** Accepted
+
+Submission creation locks the selected category while it checks existing menu
+items and pending equivalents. Review actions lock the submission, and approval
+also locks the category before creating or safely reusing the matching item.
+`menu_items(menu_category_id, name)` is unique; only a unique-constraint race
+is handled specially, while unrelated database errors propagate.
+
+**Reason:** Low-volume category-level serialization is simple and prevents
+duplicate pending suggestions. The unique index is the durable final guarantee
+against duplicate approved items, including concurrent approval paths.

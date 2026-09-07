@@ -26,9 +26,18 @@ Do not add more Office-PC features before the repository is committed and pushed
 
 Choose a small subset rather than automatically implementing every item.
 
-### 1. Proper User Profiles Without Heavy Authentication
+### Completed — Anonymous Menu Submission Moderation
 
-Replace repeated free-text identity with a lightweight user/person profile system.
+Visitors can suggest a menu item in an existing active category. Suggestions
+remain pending until an authenticated admin approves or rejects them. Approval
+creates or reuses an active approved menu item, which then naturally becomes
+eligible for the roulette. This phase also introduced a minimal admin-only
+Laravel session login and controlled CLI bootstrap for the initial admin.
+
+### 1. Proper Member Accounts and Profiles
+
+Add member registration/login and replace repeated free-text identity with a
+lightweight user/person profile system.
 
 Possible behavior:
 
@@ -40,6 +49,10 @@ First visit
 ```
 
 Historical `person_name` data must be migrated or mapped carefully.
+
+Future members may be associated with menu submissions and view their own
+submission history. The moderation schema already has nullable `user_id` for
+this, but no member UI or workflow exists yet.
 
 ### 2. Real Menu Management
 
@@ -91,11 +104,7 @@ Do not expose raw scoring numbers unless useful for debugging/admin purposes.
 
 Potential larger features:
 
-### 1. Authentication / Real Accounts
-
-Upgrade profiles into proper authenticated users if the application now benefits from it.
-
-### 2. Favorites
+### 1. Favorites
 
 A favorite should increase probability, not necessarily force selection.
 
@@ -106,11 +115,11 @@ if item is favorite:
     weight *= 1.20
 ```
 
-### 3. Ratings
+### 2. Ratings
 
 Allow users to rate meals after eating them and use rating as an additional recommendation signal.
 
-### 4. Better Long-Term Preference Model
+### 3. Better Long-Term Preference Model
 
 Potential signals:
 
@@ -125,7 +134,7 @@ historical acceptance frequency
 
 Each signal should remain independently understandable and testable.
 
-### 5. Statistics
+### 4. Statistics
 
 Examples:
 
