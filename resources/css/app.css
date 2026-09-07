@@ -38,6 +38,14 @@ select {
     padding: 64px 0;
 }
 
+.page-narrow {
+    width: min(560px, calc(100% - 32px));
+}
+
+.page-wide {
+    width: min(980px, calc(100% - 32px));
+}
+
 .header {
     margin-bottom: 40px;
     text-align: center;
@@ -69,6 +77,26 @@ select {
     color: #71717a;
     font-size: 16px;
     line-height: 1.7;
+}
+
+.section-title {
+    margin: 12px 0 0;
+    font-size: 32px;
+    font-weight: 800;
+}
+
+.back-link,
+.secondary-link {
+    color: #c2410c;
+    font-size: 14px;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.back-link:hover,
+.secondary-link:hover {
+    color: #9a3412;
+    text-decoration: underline;
 }
 
 .card {
@@ -343,6 +371,94 @@ select {
     transform: scale(0.99);
 }
 
+.secondary-link {
+    display: block;
+    margin-top: 16px;
+    text-align: center;
+}
+
+.admin-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 32px;
+}
+
+.compact-button {
+    width: auto;
+    white-space: nowrap;
+}
+
+.submission-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 20px;
+    border: 1px solid #e4e4e7;
+    border-radius: 16px;
+    background: white;
+}
+
+.submission-item + .submission-item {
+    margin-top: 12px;
+}
+
+.submission-name {
+    margin: 0;
+    font-size: 19px;
+}
+
+.submission-meta {
+    margin: 6px 0 0;
+    color: #71717a;
+    font-size: 14px;
+}
+
+.moderation-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(150px, 1fr));
+    gap: 10px;
+}
+
+.review-notes {
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+}
+
+.reject-button {
+    width: 100%;
+    padding: 14px;
+    border: 1px solid #fecaca;
+    border-radius: 12px;
+    background: #fef2f2;
+    color: #b91c1c;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.reject-button:hover {
+    background: #fee2e2;
+}
+
+.pagination {
+    margin-top: 24px;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 @media (max-width: 600px) {
     .page {
         padding: 36px 0;
@@ -358,5 +474,15 @@ select {
 
     .history-item {
         align-items: flex-start;
+    }
+
+    .admin-header,
+    .submission-item {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .moderation-actions {
+        grid-template-columns: 1fr;
     }
 }

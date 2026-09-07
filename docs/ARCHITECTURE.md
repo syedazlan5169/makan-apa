@@ -48,6 +48,28 @@ Examples of logic that belongs here or in future dedicated recommendation rules:
 
 The service should remain callable independently of the Blade view so that a future API/mobile interface can reuse it.
 
+### Menu Submission Moderation Service
+
+`MenuSubmissionModerationService` owns approval and rejection workflows. It
+keeps controllers focused on HTTP behavior and makes the state-changing
+workflow transactional.
+
+Approval and public submission creation coordinate by locking the selected
+menu-category row. A submission review additionally locks its own row and can
+transition only from `pending`. The unique `(menu_category_id, name)` index on
+`menu_items` remains the final integrity guarantee when creating or reusing an
+approved item.
+
+### Authentication and Authorization
+
+Laravel's built-in `web` session guard provides the minimal authentication
+needed for administration. `EnsureUserIsAdmin` protects moderation routes
+after the normal `auth` middleware. Roles are application-level strings; the
+current values are `admin` and `member`, with only admin behavior implemented.
+
+There is no public registration route. The first administrator is created
+through the controlled `php artisan makan:create-admin` command.
+
 ### Models
 
 Eloquent models represent stored domain entities and relationships.
@@ -61,7 +83,9 @@ Use for durable facts that should survive browsers, sessions, container recreati
 Current examples:
 
 - menu categories;
-- menu items;
+- approved menu items;
+- menu submissions and their moderation history;
+- users and roles;
 - accepted meals;
 - persistent rejection history.
 

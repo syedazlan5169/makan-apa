@@ -26,4 +26,9 @@ class MenuCategory extends Model
     {
         return $this->hasMany(MenuItem::class);
     }
+
+    public function menuSubmissions(): HasMany
+    {
+        return $this->hasMany(MenuSubmission::class);
+    }
 }
