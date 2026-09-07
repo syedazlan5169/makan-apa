@@ -14,14 +14,21 @@ https://makanapa.sydigitalsolution.com
 
 The VPS runs Ubuntu 22.04.5 LTS on `onlinekad` (`amd64` / `x86_64`, 2 vCPU, about 3.8 GiB RAM, no swap), with Docker Engine 29.7.2 and Docker Compose v5.5.0.
 
-The current production release is commit `011a50d` (`fix: exclude Vite development artifacts from production`):
+The current production release is main merge commit `dcac85f` (Menu Submission
+Moderation and custom favicon):
 
 ```text
-Application: ghcr.io/syedazlan5169/makan-apa@sha256:b6497dc08c518ad3006885fdbedef140ce63e1f8694cb75255a42cbb94831405
-Nginx:       ghcr.io/syedazlan5169/makan-apa-nginx@sha256:f8de31dd45b6963a09e93a0794f7a3f1fb9735a47915f01ef29fff40f9e8b528
+Application: ghcr.io/syedazlan5169/makan-apa@sha256:2271e63d1f447eb0f8b628d8ffa803c6ea3c94dd390cdd11d0975576312e2f04
+Nginx:       ghcr.io/syedazlan5169/makan-apa-nginx@sha256:5a33896b99f41293b61ce82d51e46ad88849a4241ce53b12ae5440ee4abc69db
 ```
 
-Production has been verified through the public URL: HTTP-to-HTTPS redirect, HTTPS HTTP/2 response, `www` hostname, generated HTTPS URLs, secure cookies, compiled CSS/JS assets, Redis and host-MySQL connectivity, health checks, Docker daemon restart recovery, app-only release replacement, and browsers on Mac and mobile.
+Production has been verified through the public URL: HTTP-to-HTTPS redirect,
+HTTPS HTTP/2 response, `www` hostname, generated HTTPS URLs, secure cookies,
+compiled CSS/JS assets, Redis and host-MySQL connectivity, health checks,
+Docker daemon restart recovery, app-only release replacement, homepage,
+favicon, anonymous menu suggestion, pending moderation, admin login, approval,
+roulette eligibility for approved items, and rejected items staying outside the
+roulette.
 
 ## Application Stack
 
@@ -190,12 +197,19 @@ The initial production migrations have run. The production database was seeded f
 
 `DatabaseSeeder` calls `MenuSeeder`. The menu seeder runs inside a transaction and is idempotent for matching category/item names through `firstOrCreate()` and `updateOrCreate()`. It prevents duplicate matching records but does not delete records removed from the seeder later; any future menu synchronization needs an explicit deletion policy.
 
-The Menu Submission Moderation feature is implemented locally and requires its
-additive migrations before production deployment. Before applying the new
-unique `(menu_category_id, name)` index to production `menu_items`, preflight
-for duplicate pairs using the production MySQL collation. Include legacy names
-with repeated/internal whitespace that may normalize to the same logical menu
-name. Do not perform automatic cleanup; resolve duplicates deliberately.
+Menu Submission Moderation is live in production. The `users.role`,
+`menu_submissions`, and `menu_items(menu_category_id, name)` unique-index
+migrations completed successfully. The required duplicate preflight was clean
+before the unique index was applied. Future deployments that add a comparable
+menu-item uniqueness migration must still preflight production data using the
+MySQL collation, including legacy internal/repeated whitespace, and resolve any
+duplicates deliberately rather than automatically deleting data.
+
+The initial production administrator was created successfully through:
+
+```bash
+php artisan makan:create-admin
+```
 
 ## Backup Status
 
@@ -483,5 +497,6 @@ implemented.
 The Menu Submission Moderation feature has passed focused moderation/admin-auth
 tests (22 tests, 99 assertions), the full Laravel suite (37 tests, 139
 assertions), `git diff --check`, and manual local testing of submission,
-moderation, and roulette eligibility flows. The application also now includes a
-custom MakanApa favicon at `public/favicon.ico`.
+moderation, and roulette eligibility flows. It is now live in production, where
+manual verification passed for the homepage, favicon, anonymous suggestion,
+pending moderation, admin login, approval, roulette eligibility, and rejection.
